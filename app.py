@@ -1,128 +1,107 @@
 import streamlit as st
-import subprocess
-import tempfile
+from pylatexenc.latex2text import LatexNodes2Text
+from fpdf import FPDF
 import base64
-import os
 
-st.set_page_config(page_title="Overleaf-like Editor", layout="wide")
+st.set_page_config(
+    page_title="Overleaf-like LaTeX Editor",
+    page_icon="📄",
+    layout="wide"
+)
 
-# ------------------------------
-# Sidebar
-# ------------------------------
-st.sidebar.title("📄 LaTeX Templates")
-
-templates = {
+# ---------------------------
+# Templates
+# ---------------------------
+TEMPLATES = {
     "Blank Document": r"""
-\documentclass{article}
-\begin{document}
-Hello World!
-\end{document}
+\section{Hello}
+This is a sample.
 """,
+    "Academic Resume": r"""
+\section{Name}
+Mohan Duratkar
 
-    "Academic Research Paper": r"""
-\documentclass{article}
-\usepackage{times}
-\usepackage{graphicx}
-\title{Your Research Title}
-\author{Your Name}
-\date{}
-\begin{document}
-\maketitle
+\section{Education}
+MSc Biochemistry (2021)
 
-\begin{abstract}
+\section{Skills}
+Python, R, CADD, Docking, AI-ML
+""",
+    "Research Paper": r"""
+\section{Title}
+My Research Paper
+
+\section{Abstract}
 Write abstract here.
-\end{abstract}
 
 \section{Introduction}
 Write introduction here.
-
-\end{document}
-""",
-
-    "Resume / CV": r"""
-\documentclass[a4paper,12pt]{article}
-\usepackage{geometry}
-\geometry{margin=1in}
-\begin{document}
-
-\begin{center}
-{\LARGE Your Name}\\
-\vspace{2mm}
-your.email@example.com | +91-XXXXXXXXXX
-\end{center}
-
-\section*{Education}
-Degree | Year | Institute
-
-\section*{Experience}
-Job Role | Company
-
-\section*{Projects}
-Project details here.
-
-\end{document}
 """
 }
 
-selected_template = st.sidebar.selectbox("Choose Template", list(templates.keys()))
-download_filename = st.sidebar.text_input("Filename", "document.pdf")
+# ---------------------------
+# Sidebar
+# ---------------------------
+st.sidebar.title("📄 LaTeX Builder")
+template = st.sidebar.selectbox("Select Template", list(TEMPLATES.keys()))
+file_name = st.sidebar.text_input("PDF File Name", "document.pdf")
+compile_button = st.sidebar.button("Compile PDF")
 
-# ------------------------------
-# Editor + Preview Layout
-# ------------------------------
-col1, col2 = st.columns([1, 1])
+# ---------------------------
+# Editor Area
+# ---------------------------
+left, right = st.columns([1, 1])
 
-with col1:
-    st.subheader("✍️ LaTeX Editor")
-    latex_code = st.text_area("Write LaTeX code here", templates[selected_template], height=500)
+with left:
+    st.subheader("📝 LaTeX Editor")
+    latex_code = st.text_area("Write LaTeX code here", value=TEMPLATES[template], height=600)
 
-compile_btn = st.sidebar.button("Compile PDF")
+# ---------------------------
+# Function: LaTeX → PDF (Text Only)
+# ---------------------------
+def latex_to_pdf(latex_text):
+    # Step 1: Convert LaTeX → Plain text
+    plain_text = LatexNodes2Text().latex_to_text(latex_text)
 
-# ------------------------------
-# Compile LaTeX
-# ------------------------------
-pdf_bytes = None
-error_text = ""
+    # Step 2: Create PDF using FPDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=12)
 
-if compile_btn:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tex_file = os.path.join(tmpdir, "main.tex")
+    for line in plain_text.split("\n"):
+        pdf.multi_cell(0, 8, line)
 
-        with open(tex_file, "w") as f:
-            f.write(latex_code)
+    return pdf.output(dest="S").encode("latin1")
 
-        # Try compiling using Tectonic (clean, modern LaTeX engine)
-        try:
-            compile_cmd = ["tectonic", tex_file, "--outdir", tmpdir]
-            result = subprocess.run(compile_cmd, capture_output=True, text=True)
+# ---------------------------
+# PDF Generation
+# ---------------------------
+pdf_data = None
+if compile_button:
+    try:
+        pdf_data = latex_to_pdf(latex_code)
+    except Exception as e:
+        st.error(f"PDF Generation Error: {e}")
 
-            if result.returncode == 0:
-                pdf_path = os.path.join(tmpdir, "main.pdf")
-                with open(pdf_path, "rb") as f:
-                    pdf_bytes = f.read()
-            else:
-                error_text = result.stderr
-
-        except Exception as e:
-            error_text = str(e)
-
-# ------------------------------
-# Display PDF or Errors
-# ------------------------------
-with col2:
+# ---------------------------
+# PDF Preview
+# ---------------------------
+with right:
     st.subheader("📘 PDF Preview")
 
-    if pdf_bytes:
-        base64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-        pdf_display = f"""
-        <iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>
-        """
+    if pdf_data:
+        # Convert PDF to Base64 for preview
+        b64_pdf = base64.b64encode(pdf_data).decode("utf-8")
+        pdf_display = f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="600" type="application/pdf">'
         st.markdown(pdf_display, unsafe_allow_html=True)
 
-        st.download_button("Download PDF", pdf_bytes, file_name=download_filename)
-
-    elif error_text:
-        st.error("⚠️ LaTeX Compilation Failed")
-        st.code(error_text)
+        # Download button
+        st.download_button(
+            label="⬇ Download PDF",
+            data=pdf_data,
+            file_name=file_name,
+            mime="application/pdf"
+        )
     else:
-        st.info("PDF will appear here after compiling.")
+        st.info("Compile your document to see PDF preview.")
