@@ -1,5 +1,7 @@
 streamlit
-jinja2
-pdfminer.six
+pylatexenc
+pdf2image
+fpdf
 reportlab
-pyyaml
+python-magic
+watchdog
